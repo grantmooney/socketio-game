@@ -1,14 +1,14 @@
-window.apiUrl = location.protocol+'//'+((location.hostname == "localhost")?location.hostname:"api.endorphinsoftworks.com");
 // Authentication class
-function Authentication() {
+function Authentication(apiUrl) {
 	var self = this;
+	this.url = apiUrl;
 	this.token = null;
 	this.user = null;
 	this.check = function() { return (self.token !== null); }
 	this.login = function(input, successCallback, errorCallback) {
 		$.ajax({
 			type: "POST",
-			url: window.apiUrl+'/auth/login',
+			url: self.url+'/auth/login',
 			data: input,
 			success: function(data) {
 				self.token = data.token;
@@ -19,10 +19,9 @@ function Authentication() {
 		});
 	}
 	this.register = function(input, successCallback, errorCallback) {
-		console.log(window.apiUrl);
 		$.ajax({
 			type: "POST",
-			url: window.apiUrl+'/auth/register',
+			url: self.url+'/auth/register',
 			data: input,
 			success: function(data) {
 				self.token = data.token;
@@ -34,7 +33,7 @@ function Authentication() {
 	}
 }
 
-window.Auth = new Authentication();
+window.Auth = new Authentication(location.protocol+'//'+((location.hostname == "localhost")?(location.hostname+':1337'):"api.endorphinsoftworks.com"));
 
 (function() {
 	var $content = $('#content'),

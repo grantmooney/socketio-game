@@ -14,6 +14,11 @@ exports = module.exports = function(server) {
         secret: config.secret,
         timeout: 10000 // 10 seconds to send the authentication message
     })).on('authenticated', function(socket) {
+
+        socket.on('newChatMsg', function(msg){
+          io.emit('newChatMsg', {user: socket.decoded_token.first_name, message: msg});
+        });
+
         // Join room event
         socket.on('join_room', function(data){
             if (data.room in roomList) {
@@ -37,7 +42,7 @@ exports = module.exports = function(server) {
         // Player target-based movement
         socket.on('move', function(data) {
             redisClient.hmset(socket.room, socket.id, JSON.stringify(data.p));
-            socket.broadcast.to(socket.room).emit('player_moving', { id: socket.id, p: data.p, v: data.v } );
+            socket.broadcast.to(socket.room).emit('player_moving', { id: socket.id, p: data.p, ia: data.ia } );
         });
 
         // Update player position
@@ -47,7 +52,7 @@ exports = module.exports = function(server) {
         });
 
         socket.on('send_room_message', function(msg){
-            socket.broadcast.to(socket.room).emit('player_sent_room_message', { id: socket.id, name: socket.decoded_token.firstName, message: msg});
+            socket.broadcast.to(socket.room).emit('player_sent_room_message', { id: socket.id, name: socket.decoded_token.first_name, msg: msg});
         });
 
         // Disconnect

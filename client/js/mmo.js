@@ -1,28 +1,25 @@
-const SOCKET_URL = location.hostname,
-    CANVAS_CONTAINER_ID = "gameplay",
-    w = 640,
-    h = 480,
-    CAMERA_PADDING = 0.4,
-    GUI_FONT = {font:"12px Arial", fill: "#fff", align: "left"},
-    GRID_WIDTH = 1920,
-    GRID_HEIGHT = 1920,
-    PLAYER_SPEED = 90,
-    FPS = 30;
+const CANVAS_CONTAINER_ID = "gameplay",
+    SCREEN_WIDTH = 640,
+    SCREEN_HEIGHT = 480,
+    CAMERA_MOVE_PADDING = 0.4,
+    GUI_FONT = {font:"16px Arial", fill: "#fff", align: "left"};
 
-var game = new Phaser.Game(w, h, Phaser.AUTO, CANVAS_CONTAINER_ID, { init: init, preload: preload, create: create, update: update, render: render});
+var game = new Phaser.Game(SCREEN_WIDTH, SCREEN_HEIGHT, Phaser.AUTO, CANVAS_CONTAINER_ID, { init: init, preload: preload, create: create, update: update, render: render});
 var players = {};
-var moveInput = {up: false, down: false, left:false, right: false},
-    sendingMessage = false;
-var inputText, messagesText;
+var moveInput = {up: false, down: false, left:false, right: false};
 var depthGroup,
     map, 
     layers = {};
+var chat = {
+    active: false,
+    inputText: null,
+    messagesText: null
+};
 
 function init() {
     game.renderer.renderSession.roundPixels = true;
     game.stage.disableVisibilityChange = true;
     game.time.advancedTiming = true;
-    game.time.desiredFps = FPS;
 }
 
 function preload() {
@@ -44,9 +41,8 @@ function create() {
     layers.walls = map.createLayer('Walls');
     layers.ground.resizeWorld();
 
-    // Tile collisions & pathfinding
-    var badTiles = [1,99];
-    map.setCollision(badTiles, true, 'Walls', true);
+    // Tile collisions
+    map.setCollision([1,2,4], true, 'Walls', true);
 
     // Physics
     game.physics.startSystem(Phaser.Physics.ARCADE);
@@ -55,19 +51,19 @@ function create() {
     depthGroup = game.add.group();
 
     // GUI
-    messagesText = game.add.text(0, 0, "Press \"Enter\" to type.", GUI_FONT);
-    messagesText.setTextBounds(10, h/2, w/2, h/2-30); // bottom-left corner
-    messagesText.fixedToCamera = true;
-    messagesText.boundsAlignV = "bottom";
+    chat.messagesText = game.add.text(0, 0, "Press \"Enter\" to type.", GUI_FONT);
+    chat.messagesText.setTextBounds(10, SCREEN_HEIGHT/2, SCREEN_WIDTH/2, SCREEN_HEIGHT/2-30); // bottom-left corner
+    chat.messagesText.fixedToCamera = true;
+    chat.messagesText.boundsAlignV = "bottom";
 
-    inputText = game.add.text(0, 0, "", GUI_FONT);
-    inputText.setTextBounds(10, h/2, w/2, h/2-10); // bottom-left corner
-    inputText.fixedToCamera = true;
-    inputText.boundsAlignV = "bottom";
+    chat.inputText = game.add.text(0, 0, "", GUI_FONT);
+    chat.inputText.setTextBounds(10, SCREEN_HEIGHT/2, SCREEN_WIDTH/2, SCREEN_HEIGHT/2-10); // bottom-left corner
+    chat.inputText.fixedToCamera = true;
+    chat.inputText.boundsAlignV = "bottom";
 
     // Connection
     this.client = new Client();
-    this.client.connect(SOCKET_URL);
+    this.client.connect(window.Auth.url);
 
     // Input
     game.input.keyboard.addCallbacks(this, keyDown, keyUp, null);
@@ -87,17 +83,15 @@ function render() {
 
 function keyDown (keyboardEvent) {
     if (this.client.inRoom) {
-        if (sendingMessage) {
+        if (chat.active) {
             if ( keyboardEvent.code == "Enter" ) {
-                sendingMessage = false;
-                console.log(inputText.text);
-                inputText.text = "";
+                chat.active = false;            
+                this.client.sendRoomMessage(chat.inputText.text);
+                chat.inputText.text = "";
             } else if (keyboardEvent.code == "Backspace") {
-                inputText.text = inputText.text.substring(0, inputText.text.length-1);
+                chat.inputText.text = chat.inputText.text.substring(0, chat.inputText.text.length-1);
             } else if ('key' in keyboardEvent && (keyboardEvent.key.length == 1)) {
-
-                console.log(keyboardEvent);
-                inputText.text += keyboardEvent.key;
+                chat.inputText.text += keyboardEvent.key;
             }
         } else {
             var change = false;
@@ -131,15 +125,15 @@ function keyDown (keyboardEvent) {
                     }
                     break;
                 case "Enter":
-                    sendingMessage = true;
+                    chat.active = true;
                     break;
             }
             if (change) {
                 var moveAxis = {
-                    x: PLAYER_SPEED * ((moveInput.right)?1:((moveInput.left)?-1:0)),
-                    y: PLAYER_SPEED * ((moveInput.down)?1:((moveInput.up)?-1:0)),
+                    x: ((moveInput.right)?1:((moveInput.left)?-1:0)),
+                    y: ((moveInput.down)?1:((moveInput.up)?-1:0)),
                 };
-                this.client.getPlayer().setVelocity(moveAxis);
+                this.client.getPlayer().setMovement(moveAxis);
             }
         }
     }
@@ -180,17 +174,18 @@ function keyUp (keyboardEvent) {
         }
         if (change) {
             var moveAxis = {
-                x: PLAYER_SPEED * ((moveInput.right)?1:((moveInput.left)?-1:0)),
-                y: PLAYER_SPEED * ((moveInput.down)?1:((moveInput.up)?-1:0)),
+                x: ((moveInput.right)?1:((moveInput.left)?-1:0)),
+                y: ((moveInput.down)?1:((moveInput.up)?-1:0)),
             };
-            this.client.getPlayer().setVelocity(moveAxis);
+            this.client.getPlayer().setMovement(moveAxis);
         }
     }
 }
 
 // player prototype
 function Player(playerID, position, client) {
-    var self = this;
+    const self = this,
+        speed = 90;
     var client = client,
         lastSync = 0;
     this.id = playerID;
@@ -201,19 +196,22 @@ function Player(playerID, position, client) {
     game.physics.enable(this.sprite);
     if (this.isClient) { 
         game.camera.follow(this.sprite, Phaser.Camera.FOLLOW_LOCKON, 0.1, 0.1);
-        game.camera.deadzone = new Phaser.Rectangle (w*CAMERA_PADDING, h*CAMERA_PADDING, w*(1-2*CAMERA_PADDING), h*(1-2*CAMERA_PADDING));
+        game.camera.deadzone = new Phaser.Rectangle (SCREEN_WIDTH*CAMERA_MOVE_PADDING, SCREEN_HEIGHT*CAMERA_MOVE_PADDING, SCREEN_WIDTH*(1-2*CAMERA_MOVE_PADDING), SCREEN_HEIGHT*(1-2*CAMERA_MOVE_PADDING));
     } else {
         this.sprite.alpha = 0.8;
     }
     this.setPosition = function(pos) { this.sprite.position = pos; }
+    this.setMovement = function(inputAxis) {
+        self.setVelocity({x: inputAxis.x*speed, y: inputAxis.y*speed});
+        if (this.isClient) {
+            client.socket.emit('move', {p: self.sprite.position, ia: inputAxis });
+            lastSync = game.time.totalElapsedSeconds();
+        }
+    }
     this.setVelocity = function(velocity) {
         self.velocity = velocity;
         self.sprite.body.velocity.x = self.velocity.x;
         self.sprite.body.velocity.y = self.velocity.y;
-        if (this.isClient) {
-            client.socket.emit('move', {p: self.sprite.position, v: velocity });
-            lastSync = game.time.totalElapsedSeconds();
-        }
     }
     this.update = function() {
         self.sprite.body.velocity.x = self.velocity.x;
@@ -232,10 +230,12 @@ function Player(playerID, position, client) {
 function Client() {
     var self = this;
     this.id = null;
-    this.inRoom = false;
-    this.socket = null;   
-    this.status = 'connecting...\n';
+    this.room = null;
+    this.socket = null;
+    this.status = 'Loading...';
+    this.inRoom = function() { return (self.room != null); };
     this.connect = function(url) {
+        this.status = 'connecting...\n';
         this.socket = io.connect(url, { autoConnect: true});
         this.socket.on('connect', this.onConnect);
         this.socket.on('authenticated', this.onAuthenticated);
@@ -254,8 +254,7 @@ function Client() {
         self.socket.emit('authenticate', { token: window.Auth.token });
     };
     this.onAuthenticated = function() {
-        self.socket.emit('join_room', {room:'noob_island', pos: {x: 64, y: 64}});
-        self.status = 'Joining room...\n';
+        self.joinRoom('noob_island');
         self.id = self.socket.io.engine.id;
         if (!self.id.startsWith("/#")) { self.id = "/#"+self.id; }
     };
@@ -265,28 +264,29 @@ function Client() {
         for (var id in data.players) {
             players[id] = new Player(id, JSON.parse(data.players[id]), self);
         }
-        self.inRoom = true;
-        self.status = 'World: '+data.room+'\n';
+        self.room = data.room;
+        self.status = 'Room: '+data.room+'\n';
     };
     this.onPlayerJoinedRoom = function(player) {
-        if (self.inRoom) {
+        if (self.inRoom()) {
             players[player.id] = new Player(player.id, player.pos, self);
         }
     };
     this.onPlayerMoving = function(data) {
-        if (self.inRoom) {
+        if (self.inRoom()) {
             players[data.id].setPosition(data.p);
-            players[data.id].setVelocity(data.v);
+            players[data.id].setMovement(data.ia);
         }
     };
     this.onPlayerSentRoomMessage = function(data) {
-        if (self.inRoom) {
+        if (self.inRoom()) {
             console.log(data);
+            chat.messagesText.text += "\n<"+data.name+"> "+data.msg;
             // players[data.id].setPosition(data.pos);
         }
     }
     this.onPlayerUpdatePosition = function(data) {
-        if (self.inRoom) {
+        if (self.inRoom()) {
             console.log(data);
             players[data.id].setPosition(data.pos);
         }
@@ -304,12 +304,21 @@ function Client() {
         }
     };
     this.onDisconnect = function() {
-        self.inRoom = false;
-        self.status = 'Disconnected';
+        self.room = null;
         // Destory players
         for (var p in players) { if (players.hasOwnProperty(p)) { players[p].sprite.destroy(true); delete players[p]; } }
-        status = 'disconnected\n';
+        self.status = 'Disconnected\n';
     };
 
+    this.joinRoom = function(room) {
+        self.socket.emit('join_room', {room:room, pos: {x: 64, y: 64}});
+        self.status = 'Joining room...\n';
+    }
+    this.sendRoomMessage = function(message) {
+        chat.messagesText.text += "\n<"+window.Auth.user.first_name+"> "+message;
+        if (message.length > 0) {
+            self.socket.emit('send_room_message', message);
+        }
+    }
     this.getPlayer = function(){ return players[self.id]; };
 }

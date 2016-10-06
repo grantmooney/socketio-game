@@ -1,0 +1,22 @@
+body {
+  padding-top: 70px;
+}
+#gameplay {
+	width: 100%;
+	margin: 0px;
+	padding: 0px;
+}
+#gameplay canvas {
+	margin: auto;
+}
+
+/*.navbar-default{
+  background:transparent;
+  background-image:none;
+  border-color:transparent;
+  box-shadow:none;
+}*/
+
+a[disabled] {
+    pointer-events: none;
+}
